@@ -21,16 +21,18 @@ type ISqlContext interface {
 }
 
 func NewMySql(cfg *config.Config) (*MySql, error) {
-
 	mysqlClient := &MySql{
 		logger: log15.New("module", "repository/mysql"),
 	}
-	if db, err := sql.Open(cfg.MySQLConfig.Database, cfg.MySQLConfig.URI); err != nil {
+
+	mysqlConf := cfg.MySQLConfig
+
+	if db, err := sql.Open(mysqlConf.Database, mysqlConf.Uri); err != nil {
 		return nil, err
 	} else {
-		db.SetMaxIdleConns(cfg.MySQLConfig.MaxIdleConns)
-		db.SetMaxOpenConns(cfg.MySQLConfig.MaxOpenConns)
-		db.SetConnMaxLifetime(time.Duration(cfg.MySQLConfig.ConnMaxLifetime) * time.Second)
+		db.SetMaxIdleConns(mysqlConf.MaxIdleConns)
+		db.SetMaxOpenConns(mysqlConf.MaxOpenConns)
+		db.SetConnMaxLifetime(time.Duration(mysqlConf.ConnMaxLifetime) * time.Second)
 
 		if db.Ping(); err != nil {
 			return nil, err

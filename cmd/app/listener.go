@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/inconshreveable/log15"
 	"mysql-event-cacher/config"
+	"mysql-event-cacher/repository"
 	"mysql-event-cacher/repository/elasticSearch"
 	"mysql-event-cacher/repository/mysql"
 	"os"
@@ -35,9 +36,7 @@ func NewListener(cfg *config.Config) {
 
 	listener.logger.Info("Connection All Success! Let's Code")
 
-	//go listener.mongo.CollectionOne.CatchInsertEvent(listener.elastic.Es)
-	//go listener.mongo.CollectionOne.CatchUpdateEvent(listener.elastic.Es)
-	//go listener.mongo.CollectionOne.CatchDeleteEvent(listener.elastic.Es)
+	repository.NewEventCatch(cfg, listener.mysql, listener.elastic)
 
 	listener.waitUntilBug()
 }

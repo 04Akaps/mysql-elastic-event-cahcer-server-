@@ -1,6 +1,10 @@
 [mySQLConfig]
-database = "mysql"
 uri = "root:root@tcp(localhost:3306)/eventCacker"
+database = "mysql"
+addr = "localhost:3306"
+user = "root"
+password = "root"
+dbName ="eventCacker"
 maxIdleConns = 5
 maxOpenConns = 30
 connMaxLifetime = 180

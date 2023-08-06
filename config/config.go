@@ -9,8 +9,11 @@ import (
 type Config struct {
 	MySQLConfig struct {
 		Database        string
+		Uri             string
+		Addr            string
+		User            string
+		Password        string
 		DBName          string
-		URI             string
 		MaxIdleConns    int
 		MaxOpenConns    int
 		ConnMaxLifetime int
