@@ -2,37 +2,39 @@ package app
 
 import (
 	"fmt"
+	"github.com/inconshreveable/log15"
 	"mysql-event-cacher/config"
 	"mysql-event-cacher/repository/elasticSearch"
 	"mysql-event-cacher/repository/mysql"
+	"os"
 )
 
 type Listener struct {
 	config  *config.Config
+	logger  log15.Logger
 	mysql   *mysql.MySql
 	elastic *elasticSearch.Elastic
 }
 
 func NewListener(cfg *config.Config) {
 	listener := &Listener{
-		config:  cfg,
-		mysql:   mysql.NewMySql(cfg),
-		elastic: elasticSearch.NewElastic(cfg),
+		config: cfg,
+		logger: log15.New("module", "app/listener"),
+	}
+	var err error
+
+	if listener.mysql, err = mysql.NewMySql(cfg); err != nil {
+		listener.logger.Crit("MySql Connection Failed", err)
+		os.Exit(0)
 	}
 
-	//if listener.mongo, err = mongo.NewMongoDB(cfg); err != nil {
-	//	panic(err)
-	//}
-	//
-	//if listener.elastic, err = elastic.NewElastic(cfg); err != nil {
-	//	panic(err)
-	//}
-	//for key := range cfg.Collections {
-	//	if err = listener.elastic.CheckIndexExisted(key); err != nil {
-	//		panic(err)
-	//	}
-	//}
-	//
+	if listener.elastic, err = elasticSearch.NewElastic(cfg); err != nil {
+		listener.logger.Crit("ElasticSearch Connection Failed", err)
+		os.Exit(0)
+	}
+
+	listener.logger.Info("Connection All Success! Let's Code")
+
 	//go listener.mongo.CollectionOne.CatchInsertEvent(listener.elastic.Es)
 	//go listener.mongo.CollectionOne.CatchUpdateEvent(listener.elastic.Es)
 	//go listener.mongo.CollectionOne.CatchDeleteEvent(listener.elastic.Es)

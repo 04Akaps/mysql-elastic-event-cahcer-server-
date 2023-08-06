@@ -14,7 +14,7 @@ type Elastic struct {
 	logger log15.Logger
 }
 
-func NewElastic(cfg *config.Config) *Elastic {
+func NewElastic(cfg *config.Config) (*Elastic, error) {
 	elasticClient := &Elastic{
 		logger: log15.New("module", "repository/elastic"),
 	}
@@ -27,12 +27,10 @@ func NewElastic(cfg *config.Config) *Elastic {
 		elastic.SetURL(cfg.Elastic.Uri),
 		elastic.SetSniff(false),
 	); err != nil {
-		elasticClient.logger.Crit("ElasticSearch Connection Crit", err)
-		return nil
+		return nil, err
 	} else {
-		elasticClient.logger.Info("ElasticSearch Connection Success!!, Let's Code!")
 		elasticClient.client = client
-		return elasticClient
+		return elasticClient, nil
 	}
 }
 
