@@ -1,0 +1,11 @@
+[mySQLConfig]
+database = "mysql"
+uri = "root:root@tcp(localhost:3306)/eventCacker"
+maxIdleConns = 5
+maxOpenConns = 30
+connMaxLifetime = 180
+
+[elastic]
+uri = "http://localhost:9200"
+user = "123"
+password = "123"
