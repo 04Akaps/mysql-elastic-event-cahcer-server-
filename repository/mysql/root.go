@@ -42,3 +42,18 @@ func NewMySql(cfg *config.Config) (*MySql, error) {
 		}
 	}
 }
+
+func (m *MySql) GetPosition(ctx context.Context) (int64, error) {
+	var position int64
+
+	err := m.DB.QueryRowContext(ctx, "SELECT beforePos FROM eventCacker.position WHERE id = ?;", 1).Scan(
+		&position,
+	)
+
+	return position, err
+}
+
+func (m *MySql) UpdatePosition(ctx context.Context, newPos int64) error {
+	_, err := m.DB.ExecContext(ctx, "UPDATE eventCacker.position SET beforePos = ? WHERE id = 1", newPos)
+	return err
+}
