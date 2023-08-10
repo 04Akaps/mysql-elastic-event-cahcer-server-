@@ -24,6 +24,12 @@ type Config struct {
 		Password string
 	}
 
+	Redis struct {
+		Address  string
+		Password string
+		DB       int
+	}
+
 	CancelContext     context.Context
 	CancelContextFunc context.CancelFunc
 }

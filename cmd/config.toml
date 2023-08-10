@@ -13,3 +13,9 @@ connMaxLifetime = 180
 uri = "http://localhost:9200"
 user = "123"
 password = "123"
+
+[redis]
+address = "redis-16052.c60.us-west-1-2.ec2.cloud.redislabs.com:16052"
+password = "1111"
+db = 0
+

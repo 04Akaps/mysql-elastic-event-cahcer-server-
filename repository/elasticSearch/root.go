@@ -15,16 +15,17 @@ type Elastic struct {
 }
 
 func NewElastic(cfg *config.Config) (*Elastic, error) {
+	elasticCfg := cfg.Elastic
 	elasticClient := &Elastic{
 		logger: log15.New("module", "repository/elastic"),
 	}
 
 	if client, err := elastic.NewClient(
 		elastic.SetBasicAuth(
-			cfg.Elastic.User,
-			cfg.Elastic.Password,
+			elasticCfg.User,
+			elasticCfg.Password,
 		),
-		elastic.SetURL(cfg.Elastic.Uri),
+		elastic.SetURL(elasticCfg.Uri),
 		elastic.SetSniff(false),
 	); err != nil {
 		return nil, err

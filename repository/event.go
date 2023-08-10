@@ -6,10 +6,12 @@ import (
 	"github.com/go-mysql-org/go-mysql/canal"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
+	r "github.com/go-redis/redis/v7"
 	"github.com/inconshreveable/log15"
 	"mysql-event-cacher/config"
 	"mysql-event-cacher/repository/elasticSearch"
 	m "mysql-event-cacher/repository/mysql"
+	"mysql-event-cacher/repository/redis"
 	"mysql-event-cacher/types"
 )
 
@@ -30,14 +32,14 @@ func addTableMap(tables []string) {
 var tableMap map[string]bool
 
 type EventCatch struct {
-	mysql *m.MySql
-	els   *elasticSearch.Elastic
-
+	mysql           *m.MySql
+	els             *elasticSearch.Elastic
+	redis           *redis.RedisClient
 	logger          log15.Logger
 	updatedPosition int64
 }
 
-func NewEventCatch(cfg *config.Config, db *m.MySql, els *elasticSearch.Elastic) {
+func NewEventCatch(cfg *config.Config, db *m.MySql, els *elasticSearch.Elastic, redis *redis.RedisClient) error {
 
 	tableMap = make(map[string]bool)
 
@@ -56,27 +58,37 @@ func NewEventCatch(cfg *config.Config, db *m.MySql, els *elasticSearch.Elastic) 
 	}
 
 	if c, err := canal.NewCanal(conf); err != nil {
-		panic(err)
+		return err
 	} else {
 		eventHandler := &EventCatch{
 			mysql:  db,
 			els:    els,
+			redis:  redis,
 			logger: log15.New("module", "repository/event-catch"),
 		}
 
-		eventHandler.updatedPosition, err = eventHandler.mysql.GetPosition(context.TODO())
-		if err != nil {
-			panic(err)
+		var position *types.Position
+
+		if err = eventHandler.redis.Load("position", &position); err != nil {
+			if err == r.Nil {
+				if position, err = eventHandler.mysql.GetPosition(context.TODO()); err != nil {
+					return err
+				} else if err = eventHandler.redis.Store("position", &position, 0); err != nil {
+					return err
+				} else {
+					eventHandler.updatedPosition = position.Position
+				}
+			} else {
+				return err
+			}
+		} else {
+			eventHandler.updatedPosition = position.Position
 		}
 
 		c.SetEventHandler(eventHandler)
 
-		err = c.Run()
-		if err != nil {
-			panic(err)
-		}
+		return c.Run()
 	}
-
 }
 
 func (h *EventCatch) OnRow(e *canal.RowsEvent) error {
@@ -87,6 +99,8 @@ func (h *EventCatch) OnRow(e *canal.RowsEvent) error {
 	if !needToCatchTable(e.Table.Name) {
 		return nil
 	}
+
+	// Mutate Rock, update Position 작업
 
 	switch e.Action {
 	case canal.InsertAction:

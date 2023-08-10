@@ -6,6 +6,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/inconshreveable/log15"
 	"mysql-event-cacher/config"
+	"mysql-event-cacher/types"
 	"time"
 )
 
@@ -43,14 +44,15 @@ func NewMySql(cfg *config.Config) (*MySql, error) {
 	}
 }
 
-func (m *MySql) GetPosition(ctx context.Context) (int64, error) {
-	var position int64
+func (m *MySql) GetPosition(ctx context.Context) (*types.Position, error) {
+
+	var pos types.Position
 
 	err := m.DB.QueryRowContext(ctx, "SELECT beforePos FROM eventCacker.position WHERE id = ?;", 1).Scan(
-		&position,
+		&pos.Position,
 	)
 
-	return position, err
+	return &pos, err
 }
 
 func (m *MySql) UpdatePosition(ctx context.Context, newPos int64) error {

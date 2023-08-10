@@ -6,3 +6,7 @@ type Event struct {
 	Age       int32
 	CreatedAt int64
 }
+
+type Position struct {
+	Position int64
+}
