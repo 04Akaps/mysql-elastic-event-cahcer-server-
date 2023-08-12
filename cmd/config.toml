@@ -1,0 +1,21 @@
+[mySQLConfig]
+uri = "root:root@tcp(localhost:3306)/eventCacker"
+database = "mysql"
+addr = "localhost:3306"
+user = "root"
+password = "root"
+dbName ="eventCacker"
+maxIdleConns = 5
+maxOpenConns = 30
+connMaxLifetime = 180
+
+[elastic]
+uri = "http://localhost:9200"
+user = "123"
+password = "123"
+
+[redis]
+address = "redis-16052.c60.us-west-1-2.ec2.cloud.redislabs.com:16052"
+password = "1111"
+db = 0
+
