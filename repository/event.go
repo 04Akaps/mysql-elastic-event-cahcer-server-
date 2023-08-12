@@ -8,11 +8,13 @@ import (
 	"github.com/go-mysql-org/go-mysql/replication"
 	r "github.com/go-redis/redis/v7"
 	"github.com/inconshreveable/log15"
+	"github.com/olivere/elastic/v7"
 	"mysql-event-cacher/config"
 	"mysql-event-cacher/repository/elasticSearch"
 	m "mysql-event-cacher/repository/mysql"
 	"mysql-event-cacher/repository/redis"
 	"mysql-event-cacher/types"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -182,17 +184,48 @@ func (h *EventCatch) OnRow(e *canal.RowsEvent) error {
 	switch e.Action {
 	case canal.InsertAction:
 		// Handle Insert Event
+		bulk := h.els.Client.Bulk()
+
 		for _, row := range e.Rows {
 			for i, value := range row {
 				data := catchEvent(i, value)
+
+				req := elastic.NewBulkUpdateRequest()
+				req.UseEasyJSON(true)
+				req.Id(strconv.FormatInt(data.ID, 10))
+				req.Index("event")
+				req.Doc(&data)
+				req.DocAsUpsert(true)
+				bulk.Add(req)
+
+				if _, err := bulk.Do(context.TODO()); err != nil {
+					h.logger.Error("Insert Bulk Do Error", "error", err)
+				}
+
 				fmt.Printf("ID: %d, Name: %s, Age: %d, CreatedAt: %d\n", data.ID, data.Name, data.Age, data.CreatedAt)
 			}
 		}
 	case canal.UpdateAction:
 		// Handle Update Event
+		bulk := h.els.Client.Bulk()
+
 		for _, row := range e.Rows {
 			for i, value := range row {
 				data := catchEvent(i, value)
+
+				req := elastic.NewBulkUpdateRequest()
+
+				req.UseEasyJSON(true)
+				req.Id(strconv.FormatInt(data.ID, 10))
+				req.Index("event")
+				req.Doc(&data)
+				req.DocAsUpsert(true)
+				bulk.Add(req)
+
+				if _, err := bulk.Do(context.TODO()); err != nil {
+					h.logger.Error("Update Bulk Do Error", "error", err)
+				}
+
 				fmt.Printf("ID: %d, Name: %s, Age: %d, CreatedAt: %d\n", data.ID, data.Name, data.Age, data.CreatedAt)
 			}
 		}
@@ -201,6 +234,19 @@ func (h *EventCatch) OnRow(e *canal.RowsEvent) error {
 		for _, row := range e.Rows {
 			for i, value := range row {
 				data := catchEvent(i, value)
+				id := strconv.FormatInt(data.ID, 10)
+				deleteQuery := h.els.Client.Delete().Index("event").Id(id)
+
+				if exists, err := h.els.Client.Exists().Index("event").Id(id).Do(context.TODO()); err != nil {
+					h.logger.Info("Els Exists Error", "info", err)
+				} else if !exists {
+					h.logger.Info("Not Exists in Els", "info", id)
+				} else if _, err = deleteQuery.Do(context.TODO()); err != nil {
+					h.logger.Info("DeleteQuery Failed", "info", err)
+				} else {
+					h.logger.Info("Success TO Delete", "info", err)
+				}
+
 				fmt.Printf("ID: %d, Name: %s, Age: %d, CreatedAt: %d\n", data.ID, data.Name, data.Age, data.CreatedAt)
 			}
 		}
