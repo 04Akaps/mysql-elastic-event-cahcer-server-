@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"github.com/inconshreveable/log15"
 	"mysql-event-cacher/config"
@@ -8,6 +9,7 @@ import (
 	"mysql-event-cacher/repository/elasticSearch"
 	"mysql-event-cacher/repository/mysql"
 	"mysql-event-cacher/repository/redis"
+	"mysql-event-cacher/types"
 	"os"
 	"time"
 )
@@ -43,6 +45,21 @@ func NewListener(cfg *config.Config) {
 	}
 
 	listener.logger.Info("Connection All Success! Let's Code")
+
+	defer func() {
+		if r := recover(); r != nil {
+			// 여기서 패닉이 일어나는 경우 redis를 DB에 넣어주면 된다.
+			var position *types.Position
+			if err = listener.redis.Load("position", &position); err != nil {
+				listener.logger.Crit("Load redis Data While Panic", "crit", err)
+			} else if err = listener.mysql.UpdatePosition(context.TODO(), position.Position); err != nil {
+				listener.logger.Crit("Update Listener Position While Panic", "crit", err)
+				listener.logger.Crit("Last Position While Panic", "crit", position.Position)
+			}
+
+			fmt.Println("Recovered:", r)
+		}
+	}()
 
 	if err = repository.NewEventCatch(cfg, listener.mysql, listener.elastic, listener.redis); err != nil {
 		listener.logger.Crit("Redis NewEventCatch Failed", "crit", err)

@@ -13,6 +13,8 @@ import (
 	m "mysql-event-cacher/repository/mysql"
 	"mysql-event-cacher/repository/redis"
 	"mysql-event-cacher/types"
+	"sync"
+	"time"
 )
 
 func needToCatchTable(table string) bool {
@@ -32,11 +34,14 @@ func addTableMap(tables []string) {
 var tableMap map[string]bool
 
 type EventCatch struct {
-	mysql           *m.MySql
-	els             *elasticSearch.Elastic
-	redis           *redis.RedisClient
-	logger          log15.Logger
+	mysql  *m.MySql
+	els    *elasticSearch.Elastic
+	redis  *redis.RedisClient
+	logger log15.Logger
+
+	updateChannel   chan int64
 	updatedPosition int64
+	mutex           sync.Mutex
 }
 
 func NewEventCatch(cfg *config.Config, db *m.MySql, els *elasticSearch.Elastic, redis *redis.RedisClient) error {
@@ -61,10 +66,11 @@ func NewEventCatch(cfg *config.Config, db *m.MySql, els *elasticSearch.Elastic, 
 		return err
 	} else {
 		eventHandler := &EventCatch{
-			mysql:  db,
-			els:    els,
-			redis:  redis,
-			logger: log15.New("module", "repository/event-catch"),
+			mysql:         db,
+			els:           els,
+			redis:         redis,
+			logger:        log15.New("module", "repository/event-catch"),
+			updateChannel: make(chan int64),
 		}
 
 		var position *types.Position
@@ -85,14 +91,51 @@ func NewEventCatch(cfg *config.Config, db *m.MySql, els *elasticSearch.Elastic, 
 			eventHandler.updatedPosition = position.Position
 		}
 
+		go eventHandler.updatePosition()
+
 		c.SetEventHandler(eventHandler)
 
 		return c.Run()
 	}
 }
 
+func (h *EventCatch) updatePosition() {
+	// 이벤트가 들어 올 떄 마다 Redis 업데이트 하기
+	tenMinuteTicker := time.NewTicker(10 * time.Minute)
+	go func() {
+		// 10분마다 DB에 현재 Position을 업데이트
+		for {
+			select {
+			case <-tenMinuteTicker.C:
+				var position *types.Position
+				if err := h.redis.Load("position", &position); err != nil {
+					h.logger.Error("Load Current Position while tenMinuteTicker", "error", err)
+				} else if err = h.mysql.UpdatePosition(context.TODO(), position.Position); err != nil {
+					h.logger.Error("Update Position while tenMinuteTicker", "error", err)
+				}
+
+				h.logger.Info("Update Position From Redis To MySql", "info", time.Now().Unix())
+			}
+		}
+	}()
+
+	for {
+		select {
+		case newPosition := <-h.updateChannel:
+			position := types.Position{
+				Position: newPosition,
+			}
+			if err := h.redis.Store("position", position, 0); err != nil {
+				h.logger.Error("store New Position To Redis", "error", err)
+			}
+		}
+	}
+}
+
 func (h *EventCatch) OnRow(e *canal.RowsEvent) error {
-	var event types.Event
+	// 동시 다발적으로 들어오는 경우를 대기
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
 	var err error
 
 	// 간단하게 구성한 원하는 테이블만 이벤트 캐치하는 코드
@@ -100,70 +143,71 @@ func (h *EventCatch) OnRow(e *canal.RowsEvent) error {
 		return nil
 	}
 
-	// Mutate Rock, update Position 작업
+	logPos := e.Header.LogPos
+
+	// Info -> 언제 까지 기록을 했는지를 검증 하고 싶을 떄
+	//if uint32(h.updatedPosition) >= logPos {
+	//	h.logger.Info("Already Updated Data", "info", e.Header.LogPos)
+	//	return nil
+	//}
+
+	catchEvent := func(i int, value interface{}) *types.Event {
+		var event types.Event
+		switch i {
+		case 0: // ID
+			if event.ID, err = convertToInt64(value); err != nil {
+				h.logger.Error("convertToInt64", "error", err)
+			}
+		case 1: // Name
+			if event.Name, err = convertToString(value); err != nil {
+				h.logger.Error("convertToString", "error", err)
+			}
+		case 2: // Age
+			if event.Age, err = convertToInt32(value); err != nil {
+				h.logger.Error("convertToInt32", "error", err)
+			}
+		case 3: // CreatedAt
+			if event.CreatedAt, err = convertTimeToUnix(value); err != nil {
+				h.logger.Error("convertTimeToUnix", "error", err)
+			}
+		}
+		return &types.Event{
+			ID:        event.ID,
+			Name:      event.Name,
+			Age:       event.Age,
+			CreatedAt: event.CreatedAt,
+		}
+	}
 
 	switch e.Action {
 	case canal.InsertAction:
+		// Handle Insert Event
 		for _, row := range e.Rows {
 			for i, value := range row {
-				switch i {
-				case 0: // ID
-					if event.ID, err = convertToInt64(value); err != nil {
-						h.logger.Error("convertToInt64", "error", err)
-						continue
-					}
-				case 1: // Name
-					if event.Name, err = convertToString(value); err != nil {
-						h.logger.Error("convertToString", "error", err)
-						continue
-					}
-				case 2: // Age
-					if event.Age, err = convertToInt32(value); err != nil {
-						h.logger.Error("convertToInt32", "error", err)
-						continue
-					}
-				case 3: // CreatedAt
-					if event.CreatedAt, err = convertTimeToUnix(value); err != nil {
-						h.logger.Error("convertTimeToUnix", "error", err)
-						continue
-					}
-				}
+				data := catchEvent(i, value)
+				fmt.Printf("ID: %d, Name: %s, Age: %d, CreatedAt: %d\n", data.ID, data.Name, data.Age, data.CreatedAt)
 			}
-			fmt.Printf("ID: %d, Name: %s, Age: %d, CreatedAt: %d\n", event.ID, event.Name, event.Age, event.CreatedAt)
 		}
 	case canal.UpdateAction:
-
+		// Handle Update Event
 		for _, row := range e.Rows {
 			for i, value := range row {
-				switch i {
-				case 0: // ID
-					if event.ID, err = convertToInt64(value); err != nil {
-						h.logger.Error("convertToInt64", "error", err)
-						break
-					}
-				case 1: // Name
-					if event.Name, err = convertToString(value); err != nil {
-						h.logger.Error("convertToString", "error", err)
-						break
-					}
-				case 2: // Age
-					if event.Age, err = convertToInt32(value); err != nil {
-						h.logger.Error("convertToInt32", "error", err)
-						break
-					}
-				case 3: // CreatedAt
-					if event.CreatedAt, err = convertTimeToUnix(value); err != nil {
-						h.logger.Error("convertTimeToUnix", "error", err)
-						continue
-					}
-				}
+				data := catchEvent(i, value)
+				fmt.Printf("ID: %d, Name: %s, Age: %d, CreatedAt: %d\n", data.ID, data.Name, data.Age, data.CreatedAt)
 			}
-			fmt.Printf("UPdated!!!! ID: %d, Name: %s, Age: %d, CreatedAt: %d\n", event.ID, event.Name, event.Age, event.CreatedAt)
 		}
-		// Handle Update event
 	case canal.DeleteAction:
 		// Handle Delete event
+		for _, row := range e.Rows {
+			for i, value := range row {
+				data := catchEvent(i, value)
+				fmt.Printf("ID: %d, Name: %s, Age: %d, CreatedAt: %d\n", data.ID, data.Name, data.Age, data.CreatedAt)
+			}
+		}
 	}
+
+	h.updatedPosition = int64(logPos)
+	h.updateChannel <- int64(logPos)
 
 	return nil
 }
